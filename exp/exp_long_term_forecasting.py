@@ -7,6 +7,7 @@ from data_provider.data_loader import Dataset_broadcast_ephemeris_error, Dataset
 from exp.exp_basic import Exp_Basic
 from utils.tools import EarlyStopping, adjust_learning_rate, visual
 from utils.metrics import metric
+from utils.losses import mape_loss, mase_loss, smape_loss, weighted_mse_loss
 import torch
 import torch.nn as nn
 from torch import optim
@@ -41,9 +42,22 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         model_optim = optim.Adam(self.model.parameters(), lr=self.args.learning_rate)
         return model_optim
 
-    def _select_criterion(self):
-        criterion = nn.MSELoss()
-        return criterion
+    def _select_criterion(self, loss_name='MSE'):
+        if loss_name == 'MSE':
+            return nn.MSELoss()
+        elif loss_name == 'MAPE':
+            return mape_loss()
+        elif loss_name == 'MASE':
+            return mase_loss()
+        elif loss_name == 'SMAPE':
+            return smape_loss()
+        elif loss_name == 'GPS_MSE':
+            if self.args.c_out == 3:
+                return weighted_mse_loss(
+                    torch.tensor([0.98, 1. / 49, 1. / 49]).to(self.device)
+                )
+            else:
+                return nn.MSELoss()
 
     def vali(self, vali_data, vali_loader, criterion):
         total_loss = []
@@ -100,7 +114,7 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         early_stopping = EarlyStopping(patience=self.args.patience, verbose=True)
 
         model_optim = self._select_optimizer()
-        criterion = self._select_criterion()
+        criterion = self._select_criterion(self.args.loss)
 
         self.model.train()
 
@@ -149,7 +163,6 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                     outputs = outputs[:, -self.args.pred_len:, f_dim:]
                     batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
                     loss = criterion(outputs, batch_y)
-
                     train_loss.append(loss.item())
 
                 if (i + 1) % 500 == 0:

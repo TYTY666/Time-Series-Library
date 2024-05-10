@@ -1,5 +1,6 @@
 from data_provider.data_loader import Dataset_ETT_hour, Dataset_ETT_minute, Dataset_Custom, Dataset_M4, PSMSegLoader, \
-    MSLSegLoader, SMAPSegLoader, SMDSegLoader, SWATSegLoader, UEAloader, Dataset_broadcast_ephemeris_error, Dataset_broadcast_clk_ephemeris_error, Dataset_broadcast_clk_ephemeris_error_60s
+    MSLSegLoader, SMAPSegLoader, SMDSegLoader, SWATSegLoader, UEAloader, Dataset_broadcast_ephemeris_error, \
+    Dataset_broadcast_clk_ephemeris_error, Dataset_broadcast_clk_ephemeris_error_60s
 from data_provider.uea import collate_fn
 from torch.utils.data import DataLoader
 
@@ -44,7 +45,7 @@ def data_provider(args, flag, batch_size=None):
     if args.task_name == 'anomaly_detection':
         drop_last = False
         data_set = Data(
-            args = args,
+            args=args,
             root_path=args.root_path,
             win_size=args.seq_len,
             flag=flag,
@@ -60,7 +61,7 @@ def data_provider(args, flag, batch_size=None):
     elif args.task_name == 'classification':
         drop_last = False
         data_set = Data(
-            args = args,
+            args=args,
             root_path=args.root_path,
             flag=flag,
         )
@@ -78,7 +79,7 @@ def data_provider(args, flag, batch_size=None):
         if args.data == 'm4':
             drop_last = False
         data_set = Data(
-            args = args,
+            args=args,
             root_path=args.root_path,
             data_path=args.data_path,
             flag=flag,

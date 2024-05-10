@@ -87,3 +87,34 @@ class mase_loss(nn.Module):
         masep = t.mean(t.abs(insample[:, freq:] - insample[:, :-freq]), dim=1)
         masked_masep_inv = divide_no_nan(mask, masep[:, None])
         return t.mean(t.abs(target - forecast) * masked_masep_inv)
+
+
+class weighted_mse_loss(nn.Module):
+    def __init__(self, weights: t.Tensor):
+        super(weighted_mse_loss, self).__init__()
+        self.weights = weights
+
+    def forward(
+            self, forecast: t.Tensor, target: t.Tensor
+    ) -> t.float:
+        """
+        MASE loss as defined in "Scaled Errors" https://robjhyndman.com/papers/mase.pdf
+
+        :param insample: Insample values. Shape: batch, time_i
+        :param freq: Frequency value
+        :param forecast: Forecast values. Shape: batch, time_o
+        :param target: Target values. Shape: batch, time_o
+        :param mask: 0/1 mask. Shape: batch, time_o
+        :return: Loss value
+        """
+        # 计算每个元素的平方误差
+        loss = (forecast - target) ** 2
+
+        # 应用权重
+        # weights需要和forecast的最后一个维度形状相同。
+        # 这里我们假设weights是一个形状为[3]的tensor
+        loss = loss * self.weights
+
+        # 计算加权的MSE
+        # 使用mean计算所有元素的均值作为输出的损失值
+        return loss.mean()

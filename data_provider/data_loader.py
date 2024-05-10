@@ -16,10 +16,15 @@ from utils.augmentation import run_augmentation_single
 
 warnings.filterwarnings('ignore')
 
+
 class Dataset_broadcast_clk_ephemeris_error_60s(Dataset):
-    def __init__(self, root_path, flag='train', size=None,
-                 features='M', data_path='G20',
-                 target='OT', scale=False, timeenc=0, freq='t', seasonal_patterns=None):
+    def __init__(
+            self, args,
+            root_path, flag='train', size=None,
+            features='M', data_path='G20',
+            target='OT', scale=False,
+            timeenc=0, freq='t', seasonal_patterns=None
+    ):
         # size [seq_len, label_len, pred_len]
         # info
         if size == None:
@@ -135,9 +140,11 @@ class Dataset_broadcast_clk_ephemeris_error_60s(Dataset):
 
 
 class Dataset_broadcast_clk_ephemeris_error(Dataset):
-    def __init__(self, root_path, flag='train', size=None,
-                 features='M', data_path='G20',
-                 target='OT', scale=False, timeenc=0, freq='t', seasonal_patterns=None):
+    def __init__(
+            self, args, root_path, flag='train', size=None,
+            features='M', data_path='G20',
+            target='OT', scale=False, timeenc=0, freq='t', seasonal_patterns=None
+    ):
         # size [seq_len, label_len, pred_len]
         # info
         if size == None:
@@ -203,7 +210,7 @@ class Dataset_broadcast_clk_ephemeris_error(Dataset):
             if self.scale is True:
                 df_data = self.scaler.transform(df_data.values)
             else:
-                df_data = df_data * 10**8
+                df_data = df_data * 10 ** 8
                 df_data = df_data.values
 
             df_stamp = df_raw[['date', ]]
@@ -252,11 +259,12 @@ class Dataset_broadcast_clk_ephemeris_error(Dataset):
         return self.scaler.inverse_transform(data)
 
 
-
 class Dataset_broadcast_ephemeris_error(Dataset):
-    def __init__(self, root_path, flag='train', size=None,
-                 features='M', data_path='G20',
-                 target='OT', scale=False, timeenc=0, freq='t', seasonal_patterns=None):
+    def __init__(
+            self, args, root_path, flag='train', size=None,
+            features='M', data_path='G20',
+            target='OT', scale=False, timeenc=0, freq='t', seasonal_patterns=None
+    ):
         # size [seq_len, label_len, pred_len]
         # info
         if size == None:
@@ -305,9 +313,9 @@ class Dataset_broadcast_ephemeris_error(Dataset):
         self.__read_data__()
 
     def __read_data__(self):
-        root, dirs, files = next(os.walk(
-            os.path.join(self.root_path, self.data_path)
-        ))
+        full_path = os.path.join(self.root_path, self.data_path)
+        assert os.path.exists(full_path)
+        root, dirs, files = next(os.walk(full_path))
         self.all_data_list = []
         for i_data_file in files:
             if i_data_file.endswith('.csv') is False:
@@ -1029,7 +1037,7 @@ class UEAloader(Dataset):
             data_paths = list(filter(lambda x: re.search(flag, x), data_paths))
         input_paths = [p for p in data_paths if os.path.isfile(p) and p.endswith('.ts')]
         if len(input_paths) == 0:
-            pattern='*.ts'
+            pattern = '*.ts'
             raise Exception("No .ts files found using pattern: '{}'".format(pattern))
 
         all_df, labels_df = self.load_single(input_paths[0])  # a single file contains dataset
@@ -1038,7 +1046,7 @@ class UEAloader(Dataset):
 
     def load_single(self, filepath):
         df, labels = load_from_tsfile_to_dataframe(filepath, return_separate_X_and_y=True,
-                                                             replace_missing_vals_with='NaN')
+                                                   replace_missing_vals_with='NaN')
         labels = pd.Series(labels, dtype="category")
         self.class_names = labels.cat.categories
         labels_df = pd.DataFrame(labels.cat.codes,
@@ -1095,7 +1103,7 @@ class UEAloader(Dataset):
             batch_x = batch_x.reshape((1 * seq_len, num_columns))
 
         return self.instance_norm(torch.from_numpy(batch_x)), \
-               torch.from_numpy(labels)
+            torch.from_numpy(labels)
 
     def __len__(self):
         return len(self.all_IDs)
