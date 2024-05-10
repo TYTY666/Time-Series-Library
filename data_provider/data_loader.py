@@ -1,5 +1,6 @@
 import os
 import numpy as np
+from copy import deepcopy
 import pandas as pd
 import glob
 import re
@@ -15,13 +16,365 @@ from utils.augmentation import run_augmentation_single
 
 warnings.filterwarnings('ignore')
 
+class Dataset_broadcast_clk_ephemeris_error_60s(Dataset):
+    def __init__(self, root_path, flag='train', size=None,
+                 features='M', data_path='G20',
+                 target='OT', scale=False, timeenc=0, freq='t', seasonal_patterns=None):
+        # size [seq_len, label_len, pred_len]
+        # info
+        if size == None:
+            self.seq_len = 6 * 60  # 12个点每小时，6小时
+            self.label_len = 3 * 60  # 12个点每小时，3小时
+            self.pred_len = 6 * 60  # 12个点每小时，6小时
+        else:
+            self.seq_len = size[0]
+            self.label_len = size[1]
+            self.pred_len = size[2]
+        # init
+        assert flag in ['train', 'test', 'val']
+        type_map = {'train': 0, 'val': 1, 'test': 2}
+        self.set_type = type_map[flag]
+        self.flag = flag
+
+        self.features = features
+        self.target = target
+        self.scale = scale
+        self.timeenc = timeenc
+        self.time_inv = []
+        self.freq = freq
+
+        self.root_path = root_path
+        self.data_path = os.path.join(data_path, flag)
+
+        # 用所有训练数据进行标准化
+        if self.scale is True:
+            self.scaler = StandardScaler()
+            root, dirs, files = next(os.walk(
+                os.path.join(self.root_path, 'train')
+            ))
+            all_data_df_list = []
+            for i_data_file in files:
+                if i_data_file.endswith('.csv') is False:
+                    continue
+                df_raw = pd.read_csv(os.path.join(
+                    root, i_data_file
+                ))
+                # todo 通过配置传入
+                cols_data = ['clock_diff', ]
+                df_data = df_raw[cols_data]
+                all_data_df_list.append(df_data)
+            self.scaler.fit(pd.concat(all_data_df_list).values)
+
+        self.__read_data__()
+
+    def __read_data__(self):
+        root, dirs, files = next(os.walk(
+            os.path.join(self.root_path, self.data_path)
+        ))
+        self.all_data_list = []
+        for i_data_file in files:
+            if i_data_file.endswith('.csv') is False:
+                continue
+            df_raw = pd.read_csv(os.path.join(
+                root, i_data_file
+            ))
+            # todo 通过配置传入
+            cols_data = ['clock_diff', ]
+            df_data = df_raw[cols_data]
+
+            if self.scale is True:
+                df_data = self.scaler.transform(df_data.values)
+            else:
+                df_data = df_data * 10 ** 8
+                df_data = df_data.values
+
+            df_stamp = df_raw[['date', ]]
+            df_raw['date'] = pd.to_datetime(df_raw.date)
+            df_stamp['date'] = pd.to_datetime(df_stamp.date)
+
+            if self.timeenc == 0:
+                df_stamp['month'] = df_stamp.date.apply(lambda row: row.month, 1)
+                df_stamp['day'] = df_stamp.date.apply(lambda row: row.day, 1)
+                df_stamp['weekday'] = df_stamp.date.apply(lambda row: row.weekday(), 1)
+                df_stamp['hour'] = df_stamp.date.apply(lambda row: row.hour, 1)
+                df_stamp['minute'] = df_stamp.date.apply(lambda row: row.minute, 1)
+                df_stamp['minute'] = df_stamp.minute.map(lambda x: x // 15)
+                data_stamp = df_stamp.drop(['date'], 1).values
+            else:
+                data_stamp = time_features(pd.to_datetime(df_stamp['date'].values), freq=self.freq)
+                data_stamp = data_stamp.transpose(1, 0)
+            # 开始生成数据
+            data_x = deepcopy(df_data)
+            data_y = deepcopy(df_data)
+            for j_idx in range(df_raw.shape[0] - self.seq_len - self.pred_len + 1):
+                s_begin = j_idx
+                s_end = s_begin + self.seq_len
+                r_begin = s_end - self.label_len
+                r_end = r_begin + self.label_len + self.pred_len
+                seq_x = data_x[s_begin:s_end]
+                seq_y = data_y[r_begin:r_end]
+                seq_x_mark = data_stamp[s_begin:s_end]
+                seq_y_mark = data_stamp[r_begin:r_end]
+                self.all_data_list.append(
+                    (seq_x, seq_y, seq_x_mark, seq_y_mark)
+                )
+                self.time_inv.append(
+                    df_raw.loc[j_idx, 'date']
+                )
+
+    def __getitem__(self, index):
+        seq_x, seq_y, seq_x_mark, seq_y_mark = self.all_data_list[index]
+        # print(seq_x.shape, seq_y.shape, seq_x_mark.shape, seq_y_mark.shape)
+        return seq_x, seq_y, seq_x_mark, seq_y_mark
+
+    def __len__(self):
+        return len(self.all_data_list)
+
+    def inverse_transform(self, data):
+        return self.scaler.inverse_transform(data)
+
+
+class Dataset_broadcast_clk_ephemeris_error(Dataset):
+    def __init__(self, root_path, flag='train', size=None,
+                 features='M', data_path='G20',
+                 target='OT', scale=False, timeenc=0, freq='t', seasonal_patterns=None):
+        # size [seq_len, label_len, pred_len]
+        # info
+        if size == None:
+            self.seq_len = 6 * 120  # 12个点每小时，6小时
+            self.label_len = 3 * 120  # 12个点每小时，3小时
+            self.pred_len = 6 * 120  # 12个点每小时，6小时
+        else:
+            self.seq_len = size[0]
+            self.label_len = size[1]
+            self.pred_len = size[2]
+        # init
+        assert flag in ['train', 'test', 'val']
+        type_map = {'train': 0, 'val': 1, 'test': 2}
+        self.set_type = type_map[flag]
+        self.flag = flag
+
+        self.features = features
+        self.target = target
+        self.scale = scale
+        self.timeenc = timeenc
+        self.time_inv = []
+        self.freq = freq
+
+        self.root_path = root_path
+        self.data_path = os.path.join(data_path, flag)
+
+        # 用所有训练数据进行标准化
+        if self.scale is True:
+            self.scaler = StandardScaler()
+            root, dirs, files = next(os.walk(
+                os.path.join(self.root_path, 'train')
+            ))
+            all_data_df_list = []
+            for i_data_file in files:
+                if i_data_file.endswith('.csv') is False:
+                    continue
+                df_raw = pd.read_csv(os.path.join(
+                    root, i_data_file
+                ))
+                # todo 通过配置传入
+                cols_data = ['clock_diff', ]
+                df_data = df_raw[cols_data]
+                all_data_df_list.append(df_data)
+            self.scaler.fit(pd.concat(all_data_df_list).values)
+
+        self.__read_data__()
+
+    def __read_data__(self):
+        root, dirs, files = next(os.walk(
+            os.path.join(self.root_path, self.data_path)
+        ))
+        self.all_data_list = []
+        for i_data_file in files:
+            if i_data_file.endswith('.csv') is False:
+                continue
+            df_raw = pd.read_csv(os.path.join(
+                root, i_data_file
+            ))
+            # todo 通过配置传入
+            cols_data = ['clock_diff', ]
+            df_data = df_raw[cols_data]
+
+            if self.scale is True:
+                df_data = self.scaler.transform(df_data.values)
+            else:
+                df_data = df_data * 10**8
+                df_data = df_data.values
+
+            df_stamp = df_raw[['date', ]]
+            df_raw['date'] = pd.to_datetime(df_raw.date)
+            df_stamp['date'] = pd.to_datetime(df_stamp.date)
+
+            if self.timeenc == 0:
+                df_stamp['month'] = df_stamp.date.apply(lambda row: row.month, 1)
+                df_stamp['day'] = df_stamp.date.apply(lambda row: row.day, 1)
+                df_stamp['weekday'] = df_stamp.date.apply(lambda row: row.weekday(), 1)
+                df_stamp['hour'] = df_stamp.date.apply(lambda row: row.hour, 1)
+                df_stamp['minute'] = df_stamp.date.apply(lambda row: row.minute, 1)
+                df_stamp['minute'] = df_stamp.minute.map(lambda x: x // 15)
+                data_stamp = df_stamp.drop(['date'], 1).values
+            else:
+                data_stamp = time_features(pd.to_datetime(df_stamp['date'].values), freq=self.freq)
+                data_stamp = data_stamp.transpose(1, 0)
+            # 开始生成数据
+            data_x = deepcopy(df_data)
+            data_y = deepcopy(df_data)
+            for j_idx in range(df_raw.shape[0] - self.seq_len - self.pred_len + 1):
+                s_begin = j_idx
+                s_end = s_begin + self.seq_len
+                r_begin = s_end - self.label_len
+                r_end = r_begin + self.label_len + self.pred_len
+                seq_x = data_x[s_begin:s_end]
+                seq_y = data_y[r_begin:r_end]
+                seq_x_mark = data_stamp[s_begin:s_end]
+                seq_y_mark = data_stamp[r_begin:r_end]
+                self.all_data_list.append(
+                    (seq_x, seq_y, seq_x_mark, seq_y_mark)
+                )
+                self.time_inv.append(
+                    df_raw.loc[j_idx, 'date']
+                )
+
+    def __getitem__(self, index):
+        seq_x, seq_y, seq_x_mark, seq_y_mark = self.all_data_list[index]
+        # print(seq_x.shape, seq_y.shape, seq_x_mark.shape, seq_y_mark.shape)
+        return seq_x, seq_y, seq_x_mark, seq_y_mark
+
+    def __len__(self):
+        return len(self.all_data_list)
+
+    def inverse_transform(self, data):
+        return self.scaler.inverse_transform(data)
+
+
+
+class Dataset_broadcast_ephemeris_error(Dataset):
+    def __init__(self, root_path, flag='train', size=None,
+                 features='M', data_path='G20',
+                 target='OT', scale=False, timeenc=0, freq='t', seasonal_patterns=None):
+        # size [seq_len, label_len, pred_len]
+        # info
+        if size == None:
+            self.seq_len = 6 * 12  # 12个点每小时，6小时
+            self.label_len = 3 * 12  # 12个点每小时，3小时
+            self.pred_len = 6 * 12  # 12个点每小时，6小时
+        else:
+            self.seq_len = size[0]
+            self.label_len = size[1]
+            self.pred_len = size[2]
+        # init
+        assert flag in ['train', 'test', 'val']
+        type_map = {'train': 0, 'val': 1, 'test': 2}
+        self.set_type = type_map[flag]
+        self.flag = flag
+
+        self.features = features
+        self.target = target
+        self.scale = scale
+        self.timeenc = timeenc
+        self.time_inv = []
+        self.freq = freq
+
+        self.root_path = root_path
+        self.data_path = os.path.join(data_path, flag)
+
+        # 用所有训练数据进行标准化
+        if self.scale is True:
+            self.scaler = StandardScaler()
+            root, dirs, files = next(os.walk(
+                os.path.join(self.root_path, 'train')
+            ))
+            all_data_df_list = []
+            for i_data_file in files:
+                if i_data_file.endswith('.csv') is False:
+                    continue
+                df_raw = pd.read_csv(os.path.join(
+                    root, i_data_file
+                ))
+                # todo 通过配置传入
+                cols_data = ['R_diff', 'A_diff', 'C_diff', ]
+                df_data = df_raw[cols_data]
+                all_data_df_list.append(df_data)
+            self.scaler.fit(pd.concat(all_data_df_list).values)
+
+        self.__read_data__()
+
+    def __read_data__(self):
+        root, dirs, files = next(os.walk(
+            os.path.join(self.root_path, self.data_path)
+        ))
+        self.all_data_list = []
+        for i_data_file in files:
+            if i_data_file.endswith('.csv') is False:
+                continue
+            df_raw = pd.read_csv(os.path.join(
+                root, i_data_file
+            ))
+            # todo 通过配置传入
+            cols_data = ['R_diff', 'A_diff', 'C_diff', ]
+            df_data = df_raw[cols_data]
+
+            if self.scale is True:
+                df_data = self.scaler.transform(df_data.values)
+            else:
+                df_data = df_data.values
+
+            df_stamp = df_raw[['date', ]]
+            df_raw['date'] = pd.to_datetime(df_raw.date)
+            df_stamp['date'] = pd.to_datetime(df_stamp.date)
+
+            if self.timeenc == 0:
+                df_stamp['month'] = df_stamp.date.apply(lambda row: row.month, 1)
+                df_stamp['day'] = df_stamp.date.apply(lambda row: row.day, 1)
+                df_stamp['weekday'] = df_stamp.date.apply(lambda row: row.weekday(), 1)
+                df_stamp['hour'] = df_stamp.date.apply(lambda row: row.hour, 1)
+                df_stamp['minute'] = df_stamp.date.apply(lambda row: row.minute, 1)
+                df_stamp['minute'] = df_stamp.minute.map(lambda x: x // 15)
+                data_stamp = df_stamp.drop(['date'], 1).values
+            else:
+                data_stamp = time_features(pd.to_datetime(df_stamp['date'].values), freq=self.freq)
+                data_stamp = data_stamp.transpose(1, 0)
+            # 开始生成数据
+            data_x = deepcopy(df_data)
+            data_y = deepcopy(df_data)
+            for j_idx in range(df_raw.shape[0] - self.seq_len - self.pred_len + 1):
+                s_begin = j_idx
+                s_end = s_begin + self.seq_len
+                r_begin = s_end - self.label_len
+                r_end = r_begin + self.label_len + self.pred_len
+                seq_x = data_x[s_begin:s_end]
+                seq_y = data_y[r_begin:r_end]
+                seq_x_mark = data_stamp[s_begin:s_end]
+                seq_y_mark = data_stamp[r_begin:r_end]
+                self.all_data_list.append(
+                    (seq_x, seq_y, seq_x_mark, seq_y_mark)
+                )
+                self.time_inv.append(
+                    df_raw.loc[j_idx, 'date']
+                )
+
+    def __getitem__(self, index):
+        seq_x, seq_y, seq_x_mark, seq_y_mark = self.all_data_list[index]
+        # print(seq_x.shape, seq_y.shape, seq_x_mark.shape, seq_y_mark.shape)
+        return seq_x, seq_y, seq_x_mark, seq_y_mark
+
+    def __len__(self):
+        return len(self.all_data_list)
+
+    def inverse_transform(self, data):
+        return self.scaler.inverse_transform(data)
+
 
 class Dataset_ETT_hour(Dataset):
-    def __init__(self, args, root_path, flag='train', size=None,
+    def __init__(self, root_path, flag='train', size=None,
                  features='S', data_path='ETTh1.csv',
                  target='OT', scale=True, timeenc=0, freq='h', seasonal_patterns=None):
         # size [seq_len, label_len, pred_len]
-        self.args = args
         # info
         if size == None:
             self.seq_len = 24 * 4 * 4
@@ -79,14 +432,14 @@ class Dataset_ETT_hour(Dataset):
             data_stamp = df_stamp.drop(['date'], 1).values
         elif self.timeenc == 1:
             data_stamp = time_features(pd.to_datetime(df_stamp['date'].values), freq=self.freq)
-            data_stamp = data_stamp.transpose(1, 0) 
+            data_stamp = data_stamp.transpose(1, 0)
 
         self.data_x = data[border1:border2]
         self.data_y = data[border1:border2]
 
         if self.set_type == 0 and self.args.augmentation_ratio > 0:
             self.data_x, self.data_y, augmentation_tags = run_augmentation_single(self.data_x, self.data_y, self.args)
-            
+
         self.data_stamp = data_stamp
 
     def __getitem__(self, index):
